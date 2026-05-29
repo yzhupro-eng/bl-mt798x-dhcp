@@ -1112,7 +1112,7 @@ static void mtk_tcp_conn_check(struct mtk_tcp_conn *c)
 	}
 }
 
-void mtk_tcp_periodic_check(void)
+int mtk_tcp_periodic_check(void)
 {
 	struct list_head *lh, *n;
 	struct mtk_tcp_conn *c;
@@ -1130,11 +1130,21 @@ void mtk_tcp_periodic_check(void)
 		mtk_tcp_stop = 1;
 	}
 
-	mtk_tcp_log("[MTK_TCP] periodic_check: stop=%d, conns=%d, listen_empty=%d, net_state=%d\n",
-		    mtk_tcp_stop, num, list_empty(&listen_head), net_state);
+	mtk_tcp_log("[MTK_TCP] periodic_check: stop=%d, conns=%d, listen_empty=%d\n",
+		    mtk_tcp_stop, num, list_empty(&listen_head));
 
-	if (mtk_tcp_stop && !num)
-		net_state = NETLOOP_SUCCESS;
+	/*
+	 * "Done" means: no listeners AND no active connections.
+	 * Using mtk_tcp_stop alone is unsafe because it is a module-level
+	 * static that can carry over from a previous session (e.g. the
+	 * failsafe's mtk_tcp_close_all_conn() on exit, or a prior wget
+	 * that auto-set it via the list_empty() check above). The caller
+	 * may not have reset it before the first poll, which caused the
+	 * failsafe loop to terminate immediately on entry. Anchoring the
+	 * exit condition to listen_head ensures sessions with registered
+	 * listeners (httpd/telnetd) never spuriously exit.
+	 */
+	return (list_empty(&listen_head) && !num) ? 1 : 0;
 }
 
 static int mtk_tcp_send_packet_opt(struct mtk_tcp_conn *c, u16 flags, u32 seq, u32 ack,

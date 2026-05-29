@@ -687,8 +687,15 @@ restart:
 		eth_rx();
 
 #if defined(CONFIG_MTK_TCP)
-		if (protocol == MTK_TCP)
-			mtk_tcp_periodic_check();
+		/*
+		 * Always run mtk_tcp_periodic_check() so that existing
+		 * MTK TCP connections (httpd, telnetd) stay alive even
+		 * while another network command (tftpboot, ping, …) is
+		 * using net_loop().  Only terminate the loop when we are
+		 * actually serving MTK_TCP and all listeners are gone.
+		 */
+		if (mtk_tcp_periodic_check() && protocol == MTK_TCP)
+			net_set_state(NETLOOP_SUCCESS);
 #endif
 
 #if defined(CONFIG_PROT_TCP)
