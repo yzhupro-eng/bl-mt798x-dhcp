@@ -1288,12 +1288,28 @@ void mtk_tcp_close_all_conn(void)
 {
 	struct list_head *lh, *n;
 	struct mtk_tcp_conn *c;
+	struct mtk_tcp_listen *l;
 
 	mtk_tcp_log("[MTK_TCP] mtk_tcp_close_all_conn: stop=%d\n", mtk_tcp_stop);
 
 	list_for_each_safe(lh, n, &conn_head) {
 		c = list_entry(lh, struct mtk_tcp_conn, node);
 		mtk_tcp_close_conn(c, 0);
+	}
+
+	/*
+	 * Remove all listeners so that mtk_tcp_periodic_check() can
+	 * return 1 (list_empty(&listen_head) && !num) and the polling
+	 * loop in failsafe can exit cleanly.  This is needed for
+	 * initramfs boot where we must leave net_loop / poll loop
+	 * without a board reset.
+	 */
+	list_for_each_safe(lh, n, &listen_head) {
+		l = list_entry(lh, struct mtk_tcp_listen, node);
+		mtk_tcp_log("[MTK_TCP] close_all_conn: removing listener port %d\n",
+			    ntohs(l->port));
+		list_del(&l->node);
+		free(l);
 	}
 
 	mtk_tcp_stop = 1;
