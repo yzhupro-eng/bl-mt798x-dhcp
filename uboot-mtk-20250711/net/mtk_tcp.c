@@ -162,6 +162,7 @@ int mtk_tcp_listen_stop(__be16 port)
 	if (l) {
 		mtk_tcp_log("[MTK_TCP] listen_stop: port %d removed\n", ntohs(port));
 		list_del(&l->node);
+		free(l);
 		return 0;
 	}
 
@@ -509,6 +510,32 @@ bool mtk_receive_tcp(struct ip_hdr *ip, int len, struct ethernet_hdr *et)
 
 	/* find existing connection */
 	c = mtk_tcp_conn_find(net_read_ip(&ip->ip_src).s_addr, tcp->src, tcp->dst);
+
+	/*
+	 * If a SYN arrives on an existing connection (not in handshake
+	 * state), the client is attempting to reconnect while the old
+	 * connection is still tracked.  This commonly happens after a
+	 * network command (tftp/ping via net_loop()) runs: eth_halt()
+	 * briefly interrupts TCP traffic, the client's keep-alive or
+	 * AJAX polling fails, and the browser sends a fresh SYN.
+	 *
+	 * RFC 793: "If the connection is in a synchronized state
+	 * (ESTABLISHED, FIN-WAIT-1, FIN-WAIT-2, CLOSE-WAIT, CLOSING,
+	 * LAST-ACK, TIME-WAIT), any unacceptable segment (out of
+	 * window, etc.) elicits ... a reset."
+	 *
+	 * We send RST on the old connection, delete it, and fall
+	 * through to create a new one for the incoming SYN.
+	 */
+	if (c && (flags & MTK_TCP_FLAG_MASK) == MTK_TCP_SYN &&
+	    c->status != SYN_SENT && c->status != SYN_RCVD) {
+		mtk_tcp_log("[MTK_TCP] rx: SYN on existing conn %pI4:%d status=%d, resetting\n",
+			    &c->ip_remote, ntohs(c->port_remote), c->status);
+		mtk_tcp_send_packet(c, MTK_TCP_RST | MTK_TCP_ACK,
+				    c->local_seq, c->peer_seq, NULL, 0);
+		mtk_tcp_conn_del(c);
+		c = NULL;
+	}
 
 	if (!c) {
 		/* whether to create new connection */
