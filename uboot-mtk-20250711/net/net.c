@@ -668,6 +668,9 @@ restart:
 	 *	Main packet reception loop.  Loop receiving packets until
 	 *	someone sets `net_state' to a state that terminates.
 	 */
+	{
+	bool net_abort_console = false;
+
 	for (;;) {
 		schedule();
 		if (arp_timeout_check() > 0)
@@ -696,6 +699,16 @@ restart:
 		 */
 		if (mtk_tcp_periodic_check() && protocol == MTK_TCP)
 			net_set_state(NETLOOP_SUCCESS);
+
+		/*
+		 * Out-of-band console abort: a telnet session that received
+		 * Ctrl+C (or the web console "Abort" button) asked to stop
+		 * this network command.  The request is consumed here — at
+		 * loop level, outside any eth_rx() callback chain — and
+		 * handled below by the exact same code path as a serial
+		 * Ctrl+C (cleanup + eth_halt() + -EINTR).
+		 */
+		net_abort_console = mtk_tcp_abort_pending();
 #endif
 
 #if defined(CONFIG_PROT_TCP)
@@ -705,7 +718,7 @@ restart:
 		/*
 		 *	Abort if ctrl-c was pressed.
 		 */
-		if (ctrlc()) {
+		if (ctrlc() || net_abort_console) {
 			/* cancel any ARP that may not have completed */
 			net_arp_wait_packet_ip.s_addr = 0;
 
@@ -799,6 +812,7 @@ restart:
 		case NETLOOP_CONTINUE:
 			continue;
 		}
+	}
 	}
 
 done:
