@@ -43,8 +43,21 @@ jobs:
           make ${{ github.event.inputs.DEFCONFIG || 'mt7987_spim_nand_rfb_defconfig' }}
           make -j"$(nproc)" CROSS_COMPILE=aarch64-linux-gnu-
 
-      - name: Report artifacts
+      - name: Assert the backported net code was really compiled
         run: |
-          ls -l uboot-mtk-20250711/u-boot.bin uboot-mtk-20250711/u-boot 2>/dev/null || true
-          echo "--- net objects built ---"
-          ls -l uboot-mtk-20250711/net/mtk_tcp.o uboot-mtk-20250711/net/mtk_httpd.o 2>/dev/null || true
+          set -x
+          test -f uboot-mtk-20250711/net/mtk_tcp.o
+          test -f uboot-mtk-20250711/net/mtk_httpd.o
+          test -f uboot-mtk-20250711/net/arp.o
+          test -f uboot-mtk-20250711/u-boot.bin
+          ls -l uboot-mtk-20250711/net/mtk_tcp.o uboot-mtk-20250711/net/mtk_httpd.o \
+                uboot-mtk-20250711/net/arp.o uboot-mtk-20250711/u-boot.bin
+          echo "--- symbols introduced by the backport ---"
+          aarch64-linux-gnu-nm uboot-mtk-20250711/net/mtk_tcp.o | grep -c mtk_tcp_conn_finish || true
+
+      - name: Upload u-boot.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: uboot-2025-mt7987
+          path: uboot-mtk-20250711/u-boot.bin
+          if-no-files-found: error
