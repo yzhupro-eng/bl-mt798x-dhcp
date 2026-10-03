@@ -1,0 +1,50 @@
+# Lightweight compile check for the U-Boot 2025 tree (uboot-mtk-20250711).
+#
+# Why: the repo's own "FIP Build" workflow only builds a FIP when the ATF and U-Boot
+# defconfig sets intersect, and atf-20250711/configs is empty in this branch -- so
+# FIP_VERSION=2025 is skipped. This workflow only compiles U-Boot, which is enough to
+# verify that the backported mtk_tcp / mtk_httpd changes compile.
+#
+# Usage: Actions -> "Net Build Check" -> Run workflow (pick a defconfig).
+name: Net Build Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      DEFCONFIG:
+        description: 'U-Boot defconfig in uboot-mtk-20250711/configs (mt7987 spim nand is closest to MT3600BE)'
+        required: true
+        default: 'mt7987_spim_nand_rfb_defconfig'
+        type: string
+  push:
+    branches:
+      - 'backport/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain and dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo -E apt-get -qq install gcc-aarch64-linux-gnu build-essential flex bison \
+            libssl-dev device-tree-compiler bc python3 python3-pip swig \
+            libgnutls28-dev uuid-dev libncurses-dev pkg-config lz4 || true
+          aarch64-linux-gnu-gcc --version | head -1
+
+      - name: Show what changed vs the author's branch
+        run: git log --oneline -13
+
+      - name: Build U-Boot 2025
+        working-directory: uboot-mtk-20250711
+        run: |
+          make ${{ github.event.inputs.DEFCONFIG || 'mt7987_spim_nand_rfb_defconfig' }}
+          make -j"$(nproc)" CROSS_COMPILE=aarch64-linux-gnu-
+
+      - name: Report artifacts
+        run: |
+          ls -l uboot-mtk-20250711/u-boot.bin uboot-mtk-20250711/u-boot 2>/dev/null || true
+          echo "--- net objects built ---"
+          ls -l uboot-mtk-20250711/net/mtk_tcp.o uboot-mtk-20250711/net/mtk_httpd.o 2>/dev/null || true
